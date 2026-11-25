@@ -63,7 +63,7 @@ Release 里发布的是一个很小的 `Antigravity-Proxy.app` Builder App。它
 
 ### Step 2: 下载 Antigravity-Proxy.app
 
-到本仓库 [Releases](https://github.com/OkamiFeng/mac-antigravity-proxy-dylib/releases) 下载 `Antigravity-Proxy.app` 或 DMG。
+到本仓库 [Releases](https://github.com/yueying0083/mac-antigravity-proxy-dylib/releases) 下载 ZIP 或 DMG，解压或挂载后得到 `Antigravity-Proxy.app`。
 
 这个 App 是 Builder App，不内置 Google Antigravity，所以体积很小。
 
@@ -227,6 +227,13 @@ build/test_client
 ```
 
 `build/Antigravity-Proxy.app` 是可发布的小型 Builder App，不包含原版 Antigravity。
+
+推送 `v*` 标签后，GitHub Actions 会在 macOS 上构建、跑 SOCKS5 冒烟测试，并发布 ZIP、DMG 和 `SHA256SUMS.txt`：
+
+```bash
+git tag v0.2.2
+git push origin v0.2.2
+```
 
 源码里仍保留 `prepare-app-copy.sh`，它用于开发/调试时手动生成完整 runtime 副本；普通用户不需要运行它。
 

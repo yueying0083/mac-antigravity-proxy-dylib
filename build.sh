@@ -7,6 +7,9 @@ mkdir -p "$BUILD_DIR"
 
 CC="${CC:-clang}"
 SWIFTC="${SWIFTC:-swiftc}"
+VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION#v}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
 CFLAGS=(
   -O2
   -Wall
@@ -60,7 +63,7 @@ if command -v "$SWIFTC" >/dev/null 2>&1; then
   iconutil -c icns "$ICONSET" -o "$APP_RESOURCES/antigravity-proxy.icns"
   rm -rf "$ICONSET"
 
-  cat >"$APP_CONTENTS/Info.plist" <<'EOF'
+  cat >"$APP_CONTENTS/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -81,9 +84,9 @@ if command -v "$SWIFTC" >/dev/null 2>&1; then
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>${VERSION}</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>${BUILD_NUMBER}</string>
   <key>CFBundleIconFile</key>
   <string>antigravity-proxy.icns</string>
   <key>LSMinimumSystemVersion</key>

@@ -6,6 +6,7 @@ build/
 
 # Generated app bundles and release archives
 Antigravity-Proxy.app/
+dist/
 *.zip
 *.tar
 *.tar.gz

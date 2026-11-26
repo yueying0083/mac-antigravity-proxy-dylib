@@ -51,6 +51,16 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Releasing $tag ($arch)"
 
+      - name: Require Apple Silicon
+        shell: bash
+        run: |
+          set -euo pipefail
+          arch="$(uname -m)"
+          if [[ "$arch" != "arm64" ]]; then
+            echo "Release builds are Apple Silicon only, got $arch" >&2
+            exit 1
+          fi
+
       - name: Build
         env:
           VERSION: ${{ steps.meta.outputs.version }}

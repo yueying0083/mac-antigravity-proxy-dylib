@@ -17,6 +17,7 @@
 - [自定义图标 / Custom Icon](#自定义图标--custom-icon)
 - [更新 Antigravity / Update](#更新-antigravity--update)
 - [停止后台进程 / Stop](#停止后台进程--stop)
+- [一步合成 / One Step](#一步合成--one-step)
 - [工作原理 / How It Works](#工作原理--how-it-works)
 - [本地构建 / Build](#本地构建--build)
 - [本地测试 / Test](#本地测试--test)
@@ -163,6 +164,20 @@ Builder App 会从本机已更新的原版 Antigravity 重新生成 runtime 代�
 
 ---
 
+## 一步合成 / One Step
+
+双击 `Antigravity-Proxy.app` 会在 runtime 副本里一次做完三件事：
+
+1. 注入本项目的代理 dylib。
+2. 先检查代理，再到 [Antigravity-Chinese-Localization](https://github.com/antigravity-cn-community/Antigravity-Chinese-Localization) 的发布列表查找与本机版本一致的 `app.asar`，通过代理下载并显示进度。
+3. 在这份已汉化的 `app.asar` 上注入 [antigravity-context-viewer](https://github.com/elviscjn-cjn/antigravity-context-viewer) 的上下文监控。查看器自带的旧版汉化和它自己的代理模块不会启用，避免和上面两步抢同一份文件。
+
+`/Applications/Antigravity.app` 不会被修改。没有对应版本的汉化包时会停下来，不会用别的版本覆盖。替换后的 `app.asar` 会重写 `ElectronAsarIntegrity`，再做 ad-hoc 重签名。
+
+只支持 Apple Silicon。首次启动会检查代理，下载走这份代理并在界面显示进度，文件缓存在 `~/Library/Application Support/Antigravity Proxy/ComposeCache/`。本机已有 Node.js `v22.21.1` 时直接使用；没有则通过代理下载这一版。
+
+---
+
 ## 工作原理 / How It Works
 
 Builder App 自身只包含：
@@ -170,6 +185,7 @@ Builder App 自身只包含：
 - `AntigravityProxyBuilder`：SwiftUI 配置界面和 runtime 生成器。
 - `AntigravityProxyLauncher`：runtime 代理版的入口。
 - `libantigravity_proxy.dylib`：网络 hook 动态库。
+- `compose-runtime.sh`：按客户端版本合成汉化包和上下文查看器。
 - `icon.png` / `.icns`：代理版图标。
 
 运行时生成的 runtime 代理版位于：
@@ -183,10 +199,10 @@ runtime 生成步骤：
 - 从 `/Applications/Antigravity.app` 复制一份 Antigravity。
 - 放入 `libantigravity_proxy.dylib`。
 - 放入 `AntigravityProxyLauncher` 作为 runtime App 的入口。
-- 对内层 Antigravity 副本做 ad-hoc 重签名，添加允许 `DYLD_INSERT_LIBRARIES` 的 entitlement。
+- 用版本匹配的汉化 `app.asar` 替换 runtime 副本，再注入上下文查看器。
+- 更新 `ElectronAsarIntegrity`，然后对内层副本做 ad-hoc 重签名，添加允许 `DYLD_INSERT_LIBRARIES` 的 entitlement。
 - 写入 `proxy.env`，启动时自动设置代理环境变量。
-- 替换外层、内层和 Electron Helper 的图标。
-- Patch 内层 `app.asar` 里的根目录 `icon.png`，避免 Dock 图标加载后切回原版图标。
+- 替换外层和 Electron Helper 的图标。
 
 注入库主要拦截：
 

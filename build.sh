@@ -10,12 +10,16 @@ SWIFTC="${SWIFTC:-swiftc}"
 VERSION="${VERSION:-1.0.0}"
 VERSION="${VERSION#v}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
+DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+ARCH="$(uname -m)"
+export MACOSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET"
 CFLAGS=(
   -O2
   -Wall
   -Wextra
   -Werror
   -Wno-deprecated-declarations
+  -mmacosx-version-min="$DEPLOYMENT_TARGET"
 )
 
 "$CC" "${CFLAGS[@]}" -dynamiclib \
@@ -32,6 +36,7 @@ CFLAGS=(
 
 if command -v "$SWIFTC" >/dev/null 2>&1; then
   "$SWIFTC" -parse-as-library -O \
+    -target "${ARCH}-apple-macosx${DEPLOYMENT_TARGET}" \
     -o "$BUILD_DIR/AntigravityProxyBuilder" \
     "$ROOT/src/BuilderApp.swift"
 
@@ -45,6 +50,8 @@ if command -v "$SWIFTC" >/dev/null 2>&1; then
   cp "$BUILD_DIR/AntigravityProxyBuilder" "$APP_MACOS/AntigravityProxyBuilder"
   cp "$BUILD_DIR/AntigravityProxyLauncher" "$APP_RESOURCES/AntigravityProxyLauncher"
   cp "$BUILD_DIR/libantigravity_proxy.dylib" "$APP_RESOURCES/libantigravity_proxy.dylib"
+  cp "$ROOT/scripts/compose-runtime.sh" "$APP_RESOURCES/compose-runtime.sh"
+  chmod +x "$APP_RESOURCES/compose-runtime.sh"
   cp "$ROOT/icon.png" "$APP_RESOURCES/icon.png"
 
   ICONSET="$BUILD_DIR/antigravity-proxy.iconset"
@@ -90,7 +97,7 @@ if command -v "$SWIFTC" >/dev/null 2>&1; then
   <key>CFBundleIconFile</key>
   <string>antigravity-proxy.icns</string>
   <key>LSMinimumSystemVersion</key>
-  <string>12.0</string>
+  <string>13.0</string>
 </dict>
 </plist>
 EOF

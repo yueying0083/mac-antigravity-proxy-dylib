@@ -108,7 +108,16 @@ final class AppModel: ObservableObject {
                 }
             }
 
-            try builder.rebuildAndLaunch()
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try builder.rebuildAndLaunch()
+                        continuation.resume()
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
             status = "已启动 Antigravity-Proxy"
             isWorking = false
 
@@ -151,7 +160,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Antigravity-Proxy")
                         .font(.title2.weight(.semibold))
-                    Text("从本机原版 Antigravity 生成代理版并启动")
+                    Text("一步生成代理版、汉化和上下文查看器")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -225,7 +234,7 @@ struct ContentView: View {
                 }
             }
 
-            Text("Clash Verge 默认 mixed port 通常是 7890：SOCKS5 端口填 7890，环境变量协议选 http，端口填 7890。")
+            Text("Clash Verge 默认 mixed port 通常是 7890：SOCKS5 端口填 7890，环境变量协议选 http，端口填 7890。仅支持 Apple Silicon。启动时会先检查代理，再按本机版本到汉化项目查找并下载补丁；没有 Node.js v22.21.1 时也会通过代理下载。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -292,6 +301,16 @@ final class RuntimeBuilder {
     }
 
     func rebuildAndLaunch() throws {
+        var machine = utsname()
+        uname(&machine)
+        let arch = withUnsafePointer(to: &machine.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: 1) {
+                String(cString: $0)
+            }
+        }
+        guard arch == "arm64" else {
+            throw BuilderError.commandFailed("只支持 Apple Silicon。当前架构是 \(arch)。")
+        }
         guard fileManager.fileExists(atPath: support.sourceApp.path) else {
             throw BuilderError.missingSourceApp(support.sourceApp.path)
         }
@@ -325,14 +344,13 @@ final class RuntimeBuilder {
         try writeOuterInfoPlist(contents: contents, iconName: icon.name)
         try "APPL????".write(to: contents.appendingPathComponent("PkgInfo"), atomically: true, encoding: .utf8)
 
-        progress("Patch Electron 图标...")
+        progress("合成汉化和上下文查看器...")
+        try composeExtras(innerApp: innerApp)
         let asar = innerApp.appendingPathComponent("Contents/Resources/app.asar")
-        if fileManager.fileExists(atPath: asar.path) {
-            // Keep the original archive byte-for-byte. Rewriting app.asar
-            // changes Electron's package layout and can make it fall back
-            // to default_app.asar. Bundle icons are still updated above.
-            progress("保留原版 app.asar，跳过内部图标替换")
-        }
+        try AsarIconPatcher.updateElectronIntegrity(
+            asarURL: asar,
+            infoPlistURL: innerApp.appendingPathComponent("Contents/Info.plist")
+        )
 
         progress("重签名 runtime...")
         let entitlements = try writeEntitlements()
@@ -358,14 +376,38 @@ final class RuntimeBuilder {
         let resources = BuilderResources(
             dylib: base.appendingPathComponent("libantigravity_proxy.dylib"),
             launcher: base.appendingPathComponent("AntigravityProxyLauncher"),
-            iconPNG: base.appendingPathComponent("icon.png")
+            iconPNG: base.appendingPathComponent("icon.png"),
+            composeScript: base.appendingPathComponent("compose-runtime.sh")
         )
-        for url in [resources.dylib, resources.launcher, resources.iconPNG] {
+        for url in [resources.dylib, resources.launcher, resources.iconPNG, resources.composeScript] {
             guard fileManager.fileExists(atPath: url.path) else {
                 throw BuilderError.missingResource(url.lastPathComponent)
             }
         }
         return resources
+    }
+
+    private func composeExtras(innerApp: URL) throws {
+        let resources = try builderResources()
+        try support.ensureRoot()
+        let cache = support.root.appendingPathComponent("ComposeCache", isDirectory: true)
+        try fileManager.createDirectory(at: cache, withIntermediateDirectories: true)
+        let output = try runStreaming(
+            "/bin/bash",
+            [
+                resources.composeScript.path,
+                "--app", innerApp.path,
+                "--cache", cache.path,
+                "--proxy", config.envProxyURL
+            ]
+        ) { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("PROGRESS ") else { return }
+            progress(String(trimmed.dropFirst("PROGRESS ".count)))
+        }
+        if !output.contains("Compose finished") {
+            throw BuilderError.commandFailed("合成未完成。\n\(output)")
+        }
     }
 
     private func writeProxyEnv(to url: URL) throws {
@@ -572,12 +614,59 @@ final class RuntimeBuilder {
 
         return output
     }
+
+    @discardableResult
+    private func runStreaming(
+        _ executable: String,
+        _ arguments: [String],
+        onLine: (String) -> Void
+    ) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+
+        do {
+            try process.run()
+        } catch {
+            throw BuilderError.commandFailed("\(executable) \(arguments.joined(separator: " "))\n\(error.localizedDescription)")
+        }
+
+        let handle = pipe.fileHandleForReading
+        var pending = Data()
+        var output = ""
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { break }
+            pending.append(chunk)
+            while let newline = pending.firstIndex(of: 10) {
+                let lineData = pending.prefix(upTo: newline)
+                pending.removeSubrange(0...newline)
+                let line = String(data: lineData, encoding: .utf8) ?? ""
+                output += line + "\n"
+                onLine(line)
+            }
+        }
+        if !pending.isEmpty {
+            let line = String(data: pending, encoding: .utf8) ?? ""
+            output += line
+            onLine(line)
+        }
+        process.waitUntilExit()
+        if process.terminationStatus != 0 {
+            throw BuilderError.commandFailed("\(executable) \(arguments.joined(separator: " "))\n\(output)")
+        }
+        return output
+    }
 }
 
 struct BuilderResources {
     let dylib: URL
     let launcher: URL
     let iconPNG: URL
+    let composeScript: URL
 }
 
 struct RuntimeIcon {
